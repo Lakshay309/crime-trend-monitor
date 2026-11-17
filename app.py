@@ -1,11 +1,17 @@
 
 import os
+from pathlib import Path
+from datetime import date
 
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+
 from sqlalchemy import create_engine, text
-from datetime import date, timedelta
+from sqlalchemy.engine import URL
+
+from pipeline.config import settings
+
 
 st.set_page_config(
     page_title="Cambridge Crime Trends",
@@ -14,30 +20,46 @@ st.set_page_config(
 )
 
 st.title("Cambridge Crime Trends")
-st.caption("Crime incident monitoring and trend analysis — Cambridge, Massachusetts")
+st.caption(
+    "Crime incident monitoring and trend analysis — "
+    "Cambridge, Massachusetts"
+)
 
 
 @st.cache_resource
 def get_engine():
-    database_url = os.getenv("DATABASE_URL")
+    """Create an engine for the configured database."""
 
-    if not database_url:
-        user = os.getenv("DB_USER", "postgres")
-        password = os.getenv("DB_PASSWORD", "")
-        host = os.getenv("DB_HOST", "localhost")
-        port = os.getenv("DB_PORT", "5432")
-        database = os.getenv("DB_NAME", "cpd_db")
+    if settings.database_type == "sqlite":
+        db_path = Path(settings.sqlite_path)
+        db_path.parent.mkdir(parents=True, exist_ok=True)
 
-        database_url = (
-            f"postgresql+psycopg2://{user}:{password}"
-            f"@{host}:{port}/{database}"
+        database_url = f"sqlite:///{db_path.as_posix()}"
+
+        return create_engine(
+            database_url,
+            connect_args={"check_same_thread": False},
         )
 
-    return create_engine(database_url, pool_pre_ping=True)
+    database_url = URL.create(
+        drivername="postgresql+psycopg2",
+        username=settings.db_user,
+        password=settings.db_password,
+        host=settings.db_host,
+        port=settings.db_port,
+        database=os.getenv("DB_NAME", settings.db_name),
+    )
+
+    return create_engine(
+        database_url,
+        pool_pre_ping=True,
+    )
 
 
 @st.cache_data(ttl=300)
 def load_data():
+    """Load incident records from the configured database."""
+
     query = text("""
         SELECT
             date_time AS incident_datetime,
@@ -57,6 +79,7 @@ def load_data():
     df["incident_datetime"] = pd.to_datetime(
         df["incident_datetime"], errors="coerce"
     )
+
     df["incident_type"] = df["incident_type"].fillna("Unknown")
     df["incident_subtype"] = df["incident_subtype"].fillna("Unknown")
     df["location"] = df["location"].fillna("Unknown")
@@ -70,10 +93,15 @@ def load_data():
 
 try:
     df = load_data()
+
 except Exception as exc:
-    st.error("Could not load crime data from PostgreSQL.")
+    st.error(
+        f"Could not load crime data from "
+        f"{settings.database_type.upper()}."
+    )
     st.exception(exc)
     st.stop()
+
 
 if df.empty:
     st.warning("No incident records are available.")
@@ -87,7 +115,6 @@ today = date.today()
 
 min_date = df["incident_datetime"].min().date()
 max_date = today
-# df["incident_datetime"].max().date()
 
 date_range = st.sidebar.date_input(
     "Incident date range",
@@ -97,6 +124,7 @@ date_range = st.sidebar.date_input(
 )
 
 types = sorted(df["incident_type"].unique().tolist())
+
 selected_types = st.sidebar.multiselect(
     "Incident type",
     types,
@@ -104,6 +132,7 @@ selected_types = st.sidebar.multiselect(
 )
 
 locations = sorted(df["location"].unique().tolist())
+
 selected_locations = st.sidebar.multiselect(
     "Location",
     locations,
@@ -120,6 +149,7 @@ if selected_locations:
 
 if isinstance(date_range, (tuple, list)) and len(date_range) == 2:
     start_date, end_date = date_range
+
     filtered = filtered[
         (filtered["incident_datetime"].dt.date >= start_date)
         & (filtered["incident_datetime"].dt.date <= end_date)
@@ -134,6 +164,7 @@ if filtered.empty:
 total = len(filtered)
 unique_types = filtered["incident_type"].nunique()
 unique_locations = filtered["location"].nunique()
+
 average_daily = (
     total / max(filtered["incident_date"].nunique(), 1)
 )
@@ -168,7 +199,9 @@ fig_monthly = px.line(
         "incidents": "Number of incidents",
     },
 )
+
 fig_monthly.update_layout(hovermode="x unified")
+
 st.plotly_chart(fig_monthly, use_container_width=True)
 
 
@@ -177,6 +210,7 @@ left, right = st.columns(2)
 
 with left:
     st.subheader("Most Common Incident Types")
+
     type_counts = (
         filtered["incident_type"]
         .value_counts()
@@ -184,6 +218,7 @@ with left:
         .sort_values()
         .reset_index()
     )
+
     type_counts.columns = ["type", "incidents"]
 
     fig_types = px.bar(
@@ -191,12 +226,18 @@ with left:
         x="incidents",
         y="type",
         orientation="h",
-        labels={"type": "Incident type", "incidents": "Incidents"},
+        labels={
+            "type": "Incident type",
+            "incidents": "Incidents",
+        },
     )
+
     st.plotly_chart(fig_types, use_container_width=True)
+
 
 with right:
     st.subheader("Top Crime Subtypes")
+
     subtype_counts = (
         filtered["incident_subtype"]
         .value_counts()
@@ -204,6 +245,7 @@ with right:
         .sort_values()
         .reset_index()
     )
+
     subtype_counts.columns = ["subtype", "incidents"]
 
     fig_subtypes = px.bar(
@@ -211,8 +253,12 @@ with right:
         x="incidents",
         y="subtype",
         orientation="h",
-        labels={"subtype": "Subtype", "incidents": "Incidents"},
+        labels={
+            "subtype": "Subtype",
+            "incidents": "Incidents",
+        },
     )
+
     st.plotly_chart(fig_subtypes, use_container_width=True)
 
 
@@ -223,8 +269,13 @@ with left:
     st.subheader("Incidents by Day of Week")
 
     day_order = [
-        "Monday", "Tuesday", "Wednesday", "Thursday",
-        "Friday", "Saturday", "Sunday",
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+        "Sunday",
     ]
 
     day_counts = (
@@ -239,9 +290,14 @@ with left:
         day_counts,
         x="day",
         y="incidents",
-        labels={"day": "Day", "incidents": "Incidents"},
+        labels={
+            "day": "Day",
+            "incidents": "Incidents",
+        },
     )
+
     st.plotly_chart(fig_days, use_container_width=True)
+
 
 with right:
     st.subheader("Incidents by Hour")
@@ -257,9 +313,14 @@ with right:
         hourly,
         x="hour",
         y="incidents",
-        labels={"hour": "Hour of day", "incidents": "Incidents"},
+        labels={
+            "hour": "Hour of day",
+            "incidents": "Incidents",
+        },
     )
+
     fig_hours.update_xaxes(dtick=1)
+
     st.plotly_chart(fig_hours, use_container_width=True)
 
 
@@ -273,6 +334,7 @@ top_locations = (
     .sort_values()
     .reset_index()
 )
+
 top_locations.columns = ["location", "incidents"]
 
 fig_locations = px.bar(
@@ -280,8 +342,12 @@ fig_locations = px.bar(
     x="incidents",
     y="location",
     orientation="h",
-    labels={"location": "Location", "incidents": "Incidents"},
+    labels={
+        "location": "Location",
+        "incidents": "Incidents",
+    },
 )
+
 st.plotly_chart(fig_locations, use_container_width=True)
 
 
@@ -289,7 +355,8 @@ st.plotly_chart(fig_locations, use_container_width=True)
 st.subheader("Incident Records")
 
 display_df = filtered.sort_values(
-    "incident_datetime", ascending=False
+    "incident_datetime",
+    ascending=False,
 ).copy()
 
 display_df["incident_datetime"] = (

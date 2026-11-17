@@ -86,6 +86,7 @@ services:
       - -c
       - "from pipeline.flow import crime_pipeline; crime_pipeline.serve(name='daily-crime-monitor', cron='30 18 * * *')"
     environment:
+      DATABASE_TYPE: postgresql
       SOCRATA_DOMAIN: ${SOCRATA_DOMAIN:-data.cambridgema.gov}
       SOCRATA_DATASET_ID: ${SOCRATA_DATASET_ID:-3gki-wyrb}
       SOCRATA_APP_TOKEN: ${SOCRATA_APP_TOKEN}
@@ -117,11 +118,12 @@ services:
       - --server.address=0.0.0.0
       - --server.port=8501
     environment:
+      DATABASE_TYPE: postgresql
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_NAME: ${POSTGRES_DB}
-      DB_USER: ${POSTGRES_USER}
-      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
       - "8501:8501"
     depends_on:

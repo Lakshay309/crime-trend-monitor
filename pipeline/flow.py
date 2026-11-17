@@ -1,11 +1,12 @@
-﻿import logging
+﻿
+import logging
 
 from prefect import flow, task
 
 from pipeline.extract import extract_data
 from pipeline.validate import validate_data
 from pipeline.transform import transform_data
-from pipeline.load import load_into_postgres
+from pipeline.load import load_data
 from pipeline.logging_config import logger
 
 
@@ -46,9 +47,9 @@ def transform_task(df):
     retry_delay_seconds=30,
 )
 def load_task(df):
-    """Load transformed records into PostgreSQL."""
+    """Load transformed incidents into the configured database."""
 
-    load_into_postgres(df)
+    load_data(df)
 
     return len(df)
 

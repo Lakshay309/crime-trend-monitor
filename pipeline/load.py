@@ -1,16 +1,21 @@
-﻿import logging
+﻿
+import logging
 from pathlib import Path
 
 import pandas as pd
-from sqlalchemy import create_engine, func
+from sqlalchemy import (
+    create_engine,
+    func,
+    MetaData,
+    Table,
+)
 from sqlalchemy.engine import URL
-from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy import create_engine, func, MetaData, Table
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from pipeline.config import settings
 
 logger = logging.getLogger("crime_pipeline.load")
-
 
 TABLE_NAME = "cpd_incidents"
 
@@ -33,7 +38,16 @@ DATA_COLUMNS = [
 
 
 def create_database_engine():
-    """Create a PostgreSQL SQLAlchemy engine."""
+    """Create the configured database engine."""
+
+    if settings.database_type == "sqlite":
+        db_path = Path(settings.sqlite_path)
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+
+        return create_engine(
+            f"sqlite:///{db_path.as_posix()}",
+            connect_args={"check_same_thread": False},
+        )
 
     connection_url = URL.create(
         drivername="postgresql+psycopg2",
@@ -51,10 +65,14 @@ def create_database_engine():
     )
 
 
-def create_postgres_table(engine):
-    """Create the database table and indexes from schema.sql."""
+def create_database_table(engine):
+    """Create the incident table and indexes."""
 
-    schema_path = Path(__file__).resolve().parent.parent / "sql" / "schema.sql"
+    schema_path = (
+        Path(__file__).resolve().parent.parent
+        / "sql"
+        / "schema.sql"
+    )
 
     if not schema_path.exists():
         raise FileNotFoundError(
@@ -64,10 +82,14 @@ def create_postgres_table(engine):
     schema_sql = schema_path.read_text(encoding="utf-8-sig")
 
     with engine.begin() as connection:
-        connection.exec_driver_sql(schema_sql)
+        for statement in schema_sql.split(";"):
+            if statement.strip():
+                connection.exec_driver_sql(statement)
 
-    logger.info("PostgreSQL table and indexes are ready.")
-
+    logger.info(
+        "%s table and indexes are ready.",
+        settings.database_type.upper(),
+    )
 
 
 def upsert_incidents(table, connection, keys, data_iter):
@@ -86,10 +108,15 @@ def upsert_incidents(table, connection, keys, data_iter):
     db_table = Table(
         TABLE_NAME,
         metadata,
-        autoload_with=connection
+        autoload_with=connection,
     )
 
-    statement = insert(db_table).values(records)
+    if connection.dialect.name == "sqlite":
+        insert_statement = sqlite_insert(db_table)
+    else:
+        insert_statement = pg_insert(db_table)
+
+    statement = insert_statement.values(records)
 
     update_columns = {
         column: statement.excluded[column]
@@ -97,7 +124,7 @@ def upsert_incidents(table, connection, keys, data_iter):
         if column != "id"
     }
 
-    update_columns[db_table.c.updated_at] = func.now()
+    update_columns[db_table.c.updated_at] = func.current_timestamp()
 
     statement = statement.on_conflict_do_update(
         index_elements=[db_table.c.id],
@@ -109,13 +136,11 @@ def upsert_incidents(table, connection, keys, data_iter):
     return result.rowcount
 
 
-def load_into_postgres(df):
-    """
-    Load transformed incidents into PostgreSQL using UPSERT.
-    """
+def load_data(df):
+    """Load transformed incidents using database-specific UPSERT."""
 
     if df.empty:
-        logger.warning("No records to load into PostgreSQL.")
+        logger.warning("No records to load.")
         return
 
     missing_columns = set(DATA_COLUMNS) - set(df.columns)
@@ -130,11 +155,12 @@ def load_into_postgres(df):
     engine = create_database_engine()
 
     try:
-        create_postgres_table(engine)
+        create_database_table(engine)
 
         logger.info(
-            "Loading %s records into PostgreSQL.",
-            len(df)
+            "Loading %s records into %s.",
+            len(df),
+            settings.database_type.upper(),
         )
 
         with engine.begin() as connection:
@@ -143,20 +169,19 @@ def load_into_postgres(df):
                 con=connection,
                 if_exists="append",
                 index=False,
-                chunksize=settings.batch_size,
+                chunksize=60 if settings.database_type == "sqlite" else settings.batch_size,
                 method=upsert_incidents,
             )
 
         logger.info(
-            "Successfully processed %s records into PostgreSQL.",
-            len(df)
+            "Successfully processed %s records.",
+            len(df),
         )
 
     except Exception:
-        logger.exception("PostgreSQL loading failed.")
+        logger.exception("Database loading failed.")
         raise
 
     finally:
         engine.dispose()
-        logger.info("PostgreSQL connection pool disposed.")
-
+        logger.info("Database connection pool disposed.")

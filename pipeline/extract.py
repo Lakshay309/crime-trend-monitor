@@ -40,7 +40,8 @@ def extract_data():
                     batch = client.get(
                         settings.socrata_dataset_id,
                         limit=limit,
-                        offset=offset
+                        offset=offset,
+                        order="id ASC"
                     )
                     break
 
