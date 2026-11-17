@@ -181,6 +181,14 @@ cd D:\Coding\crime-trend-monitor
 streamlit run app.py
 ```
 
+### 8. Keep Alive
+
+Open **Terminal 4**:
+
+```powershell
+python -c "from pipeline.flow import crime_pipeline; crime_pipeline.serve(name='daily-crime-monitor', cron='30 18 * * *')"
+```
+
 Streamlit will print the local dashboard URL in the terminal. It is usually:
 
 `http://localhost:8501`

@@ -124,6 +124,12 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PREFECT_API_URL: http://prefect-server:4200/api
+      PREFECT_UI_URL: http://localhost:4200
+      PREFECT_DEPLOYMENT_NAME: Cambridge Crime Monitoring Pipeline/daily-crime-monitor
+      SOCRATA_DOMAIN: ${SOCRATA_DOMAIN:-data.cambridgema.gov}
+      SOCRATA_DATASET_ID: ${SOCRATA_DATASET_ID:-3gki-wyrb}
+      SOCRATA_APP_TOKEN: ${SOCRATA_APP_TOKEN}
     ports:
       - "8501:8501"
     depends_on:
