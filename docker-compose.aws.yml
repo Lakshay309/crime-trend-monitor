@@ -1,0 +1,23 @@
+﻿
+services:
+  postgres:
+    ports: !reset []
+
+  pgadmin:
+    ports: !reset []
+
+  metabase:
+    ports: !override
+      - "3000:3000"
+
+  prefect-server:
+    environment:
+      PREFECT_UI_API_URL: ${PREFECT_UI_API_URL:-http://localhost:4200/api}
+    ports: !override
+      - "4200:4200"
+
+  crime-pipeline:
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      PREFECT_API_URL: http://prefect-server:4200/api
